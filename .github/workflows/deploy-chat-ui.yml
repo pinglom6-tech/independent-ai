@@ -41,8 +41,8 @@ jobs:
         run: |
           python3 - <<'PY'
           import os,urllib.request,urllib.error
-          url='https://api.runpod.io/v2/pods/o7nqskrov34oew/restart'
-          req=urllib.request.Request(url,method='POST',headers={'Authorization':'Bearer '+os.environ['RUNPOD_API_KEY'].strip(),'Content-Type':'application/json'},data=b'{}')
+          url='https://api.runpod.io/v2/pods/o7nqskrov34oew/action'
+          req=urllib.request.Request(url,method='POST',headers={'Authorization':'Bearer '+os.environ['RUNPOD_API_KEY'].strip(),'Content-Type':'application/json'},data=b'{"action":"restart"}')
           try:
               with urllib.request.urlopen(req,timeout=50) as r: print('Restart response:',r.status,r.read().decode()[:500])
           except urllib.error.HTTPError as e:
