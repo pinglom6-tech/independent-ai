@@ -1,0 +1,24 @@
+name: Emergency Stop RunPod
+on:
+  push:
+    paths:
+      - '.github/workflows/emergency-stop-runpod.yml'
+permissions:
+  contents: read
+jobs:
+  stop:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Stop pod immediately
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os,urllib.request,json
+          pod='o7nqskrov34oew'
+          key=os.environ['RUNPOD_API_KEY'].strip()
+          url=f'https://api.runpod.io/v2/pods/{pod}/action'
+          data=json.dumps({'action':'stop'}).encode()
+          req=urllib.request.Request(url,data=data,method='POST',headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'})
+          with urllib.request.urlopen(req,timeout=30) as r: print('STOP RESPONSE',r.status,r.read().decode()[:1000])
+          PY
