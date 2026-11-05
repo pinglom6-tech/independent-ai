@@ -1,10 +1,6 @@
 name: Fix RunPod startup
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - ".github/workflows/fix-runpod-startup.yml"
-      - "bootstrap-runpod.sh"
 
 permissions:
   contents: read
