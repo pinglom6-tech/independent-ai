@@ -1,0 +1,40 @@
+name: Diagnose RunPod proxy 403
+on:
+  push:
+    paths:
+      - '.github/workflows/diagnose-proxy.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check exposed ports and proxy response
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os,json,urllib.request,urllib.error
+          key=os.environ['RUNPOD_API_KEY'].strip()
+          url='https://api.runpod.io/v2/pods/o7nqskrov34oew'
+          with urllib.request.urlopen(urllib.request.Request(url,headers={'Authorization':'Bearer '+key}),timeout=30) as r:pod=json.load(r)
+          result={'status':pod.get('status'),'ports':pod.get('ports'),'ssh':{'direct':bool((pod.get('ssh') or {}).get('direct'))},'proxies':[]}
+          for port in (8000,8888):
+              url=f'https://o7nqskrov34oew-{port}.proxy.runpod.net/'
+              try:
+                  with urllib.request.urlopen(url,timeout=15) as r:result['proxies'].append({'port':port,'status':r.status})
+              except urllib.error.HTTPError as e:result['proxies'].append({'port':port,'status':e.code,'server':e.headers.get('server'),'body':e.read(400).decode('utf-8','replace')})
+              except Exception as e:result['proxies'].append({'port':port,'error':str(e)})
+          os.makedirs('diagnostics',exist_ok=True)
+          with open('diagnostics/proxy-diagnosis.json','w') as f:json.dump(result,f,indent=2)
+          print(json.dumps(result))
+          PY
+      - name: Save diagnosis
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add diagnostics/proxy-diagnosis.json
+          git commit -m 'Record RunPod proxy diagnosis' || true
+          git push
