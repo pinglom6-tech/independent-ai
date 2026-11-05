@@ -1,0 +1,29 @@
+name: Test RunPod SSH connectivity
+on:
+  push:
+    paths:
+      - '.github/workflows/test-runpod-ssh.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ssh-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Test SSH network access without credentials
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import socket
+          targets=[('69.30.85.142',22113),('ssh.runpod.io',22)]
+          for host,port in targets:
+              try:
+                  with socket.create_connection((host,port),timeout=8) as s:
+                      s.settimeout(4)
+                      try: banner=s.recv(120).decode('ascii','replace').strip()
+                      except Exception as e: banner='no banner: '+str(e)
+                      print(f'{host}:{port} REACHABLE; {banner}')
+              except Exception as e:
+                  print(f'{host}:{port} FAILED: {type(e).__name__}: {e}')
+          PY
