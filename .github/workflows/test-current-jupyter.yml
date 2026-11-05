@@ -1,0 +1,27 @@
+name: Test JupyterLab access without restart
+on:
+  push:
+    paths: ['.github/workflows/test-current-jupyter.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Probe current pod JupyterLab endpoint
+        run: |
+          python3 - <<'PY'
+          import urllib.request,urllib.error,json
+          base='https://yad9431x3mx9xf-8888.proxy.runpod.net'
+          for path in ['/','/api/status','/api/kernels']:
+              try:
+                  req=urllib.request.Request(base+path,headers={'User-Agent':'independent-ai-jupyter-probe'})
+                  with urllib.request.urlopen(req,timeout=12) as r:
+                      body=r.read(350).decode('utf-8','replace')
+                      print(path,'HTTP',r.status,'URL',r.url,'CONTENT',body[:160].replace('\n',' '))
+              except urllib.error.HTTPError as e:
+                  print(path,'HTTP',e.code,'LOCATION',e.headers.get('Location'),'CONTENT',e.read(150).decode('utf-8','replace'))
+              except Exception as e: print(path,type(e).__name__,str(e)[:250])
+          PY
