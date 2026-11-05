@@ -35,21 +35,6 @@ jobs:
               call('/account/ssh-keys','PUT',{'keys':keys+[pub]})
           print('Deployment SSH key registered')
           PY
-      - name: Restart existing pod to apply newly registered SSH key
-        env:
-          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
-        run: |
-          python3 - <<'PY'
-          import os,urllib.request,urllib.error
-          url='https://api.runpod.io/v2/pods/o7nqskrov34oew/action'
-          req=urllib.request.Request(url,method='POST',headers={'Authorization':'Bearer '+os.environ['RUNPOD_API_KEY'].strip(),'Content-Type':'application/json'},data=b'{"action":"restart"}')
-          try:
-              with urllib.request.urlopen(req,timeout=50) as r: print('Restart response:',r.status,r.read().decode()[:500])
-          except urllib.error.HTTPError as e:
-              print('Restart rejected:',e.code,e.read().decode()[:500])
-              raise
-          PY
-          sleep 50
       - name: Discover live SSH endpoints
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
@@ -59,9 +44,13 @@ jobs:
           req=urllib.request.Request('https://api.runpod.io/v2/pods/o7nqskrov34oew',headers={'Authorization':'Bearer '+os.environ['RUNPOD_API_KEY'].strip()})
           with urllib.request.urlopen(req,timeout=40) as r: pod=json.load(r)
           print('Pod status:',pod.get('status'))
+          print('Pod SSH enabled:',pod.get('startSsh'))
+          print('Pod SSH endpoint types:',list((pod.get('ssh') or {}).keys()))
           if pod.get('status')!='RUNNING':raise RuntimeError('Pod not running; refusing to restart without authorization')
           ssh=pod.get('ssh') or {}
           print('SSH metadata fields:',list(ssh))
+          print('Direct available:',bool(ssh.get('direct')))
+          print('Proxy available:',bool(ssh.get('proxy')))
           direct=ssh.get('direct') or {}
           proxy=ssh.get('proxy') or {}
           with open(os.environ['GITHUB_ENV'],'a') as f:
@@ -80,16 +69,16 @@ jobs:
           set -euo pipefail
           opts=(-T -i ~/.ssh/runpod_ai -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=8)
           connected=0
-          for i in $(seq 1 24); do
+          for i in $(seq 1 2); do
             if [[ -n "${POD_SSH_HOST:-}" && -n "${POD_SSH_PORT:-}" ]] && ssh "${opts[@]}" -p "$POD_SSH_PORT" "root@$POD_SSH_HOST" 'echo DIRECT_OK'; then
               target="root@$POD_SSH_HOST"; port="$POD_SSH_PORT"; connected=1; break
             fi
             if [[ -n "${POD_PROXY_USER:-}" ]] && ssh "${opts[@]}" -p 22 "$POD_PROXY_USER@${POD_PROXY_HOST:-ssh.runpod.io}" 'echo PROXY_OK'; then
               target="$POD_PROXY_USER@${POD_PROXY_HOST:-ssh.runpod.io}"; port=22; connected=1; break
             fi
-            sleep 10
+            sleep 3
           done
-          [[ "$connected" == 1 ]] || { echo 'SSH unavailable'; exit 1; }
+          [[ "$connected" == 1 ]] || { echo "SSH authentication unavailable; check startSsh and account key injection. No restart performed."; exit 1; }
           if [[ -z "${CHAT_UI_PASSWORD:-}" ]]; then
             echo 'CHAT_UI_PASSWORD GitHub Actions secret is required to protect the chat interface.'
             exit 1
