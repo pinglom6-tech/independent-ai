@@ -6,36 +6,31 @@ permissions:
 jobs:
   connect:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 5
     steps:
-      - name: Install RunPod CLI
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import json,urllib.request,os
-          req=urllib.request.Request('https://api.github.com/repos/runpod/runpodctl/releases/latest',headers={'User-Agent':'independent-ai'})
-          data=json.load(urllib.request.urlopen(req))
-          for a in data['assets']:
-            print(a['name'])
-          PY
-          curl -fsSL https://github.com/runpod/runpodctl/releases/latest/download/runpodctl-linux-amd64 -o /tmp/runpodctl || true
-          if file /tmp/runpodctl 2>/dev/null | grep -q ELF; then
-            sudo install -m 755 /tmp/runpodctl /usr/local/bin/runpodctl
-          else
-            echo 'CLI asset name differs; inspect release assets above'; exit 1
-          fi
-          runpodctl version
-      - name: Inspect target pod and SSH endpoint
+      - name: Inspect RunPod pod using verified API v2
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
-          POD_ID: o7nqskrov34oew
         run: |
-          set -euo pipefail
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          ssh-keygen -q -t ed25519 -f ~/.ssh/id_ed25519 -N ''
-          echo 'Checking pod state via authenticated REST v2 (without SSH key registration)'
-          runpodctl pod get "$POD_ID"
-          echo 'Checking SSH connection details (read-only)'
-          runpodctl ssh info "$POD_ID"
-          echo 'Pod and SSH inspection completed. No GPU started.'
+          python3 - <<'PY'
+          import os,json,urllib.request,urllib.error
+          url='https://api.runpod.io/v2/pods'
+          req=urllib.request.Request(url,headers={'Authorization':'Bearer '+os.environ['RUNPOD_API_KEY']})
+          try:
+              with urllib.request.urlopen(req,timeout=30) as response:
+                  data=json.load(response)
+              pods=data if isinstance(data,list) else data.get('pods',data.get('data',[]))
+              if isinstance(pods,dict): pods=pods.get('pods',[])
+              print('API v2 authenticated. Pod count:',len(pods))
+              for pod in pods:
+                  print(json.dumps({k:pod.get(k) for k in ('id','name','desiredStatus','status','imageName','ports') if k in pod}))
+              target='o7nqskrov34oew'
+              matches=[p for p in pods if p.get('id')==target]
+              if not matches:
+                  print('TARGET_POD_NOT_FOUND: target pod is not listed under this API key')
+              else:
+                  print('TARGET_POD_FOUND; state:',matches[0].get('desiredStatus',matches[0].get('status','unknown')))
+          except urllib.error.HTTPError as e:
+              print('HTTP ERROR',e.code)
+              raise
+          PY
