@@ -1,6 +1,9 @@
 name: Remote GPU deployment
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/remote-deploy.yml'
 permissions:
   contents: write
 jobs:
