@@ -1,0 +1,81 @@
+name: Repair and diagnose RunPod boot
+on:
+  push:
+    paths:
+      - '.github/workflows/repair-runpod-boot.yml'
+permissions:
+  contents: write
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply explicit shell entrypoint and capture boot logs
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import os,json,urllib.request,urllib.error,time,base64
+          pod='o7nqskrov34oew'
+          base='https://api.runpod.io/v2/pods/'+pod
+          key=os.environ['RUNPOD_API_KEY'].strip()
+          headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'}
+          def api(method,url,data=None):
+              req=urllib.request.Request(url,headers=headers,method=method,data=json.dumps(data).encode() if data is not None else None)
+              with urllib.request.urlopen(req,timeout=40) as r:return json.load(r)
+          shell="""set -x
+          echo BOOT_DIAGNOSTICS_BEGIN
+          ls -la /workspace || true
+          ls -la /workspace/independent-ai || true
+          if [ -f /workspace/install.sh ]; then bash /workspace/install.sh; else echo MISSING_WORKSPACE_INSTALL_SH; fi
+          cd /workspace/independent-ai || { echo MISSING_PROJECT_DIRECTORY; sleep 300; exit 1; }
+          if [ -f start-model.sh ]; then bash start-model.sh & else echo MISSING_MODEL_START_SCRIPT; fi
+          python -m pip install -q gradio openai || { echo PIP_INSTALL_FAILED; sleep 300; exit 1; }
+          test -f chat-ui/app.py || { echo MISSING_CHAT_UI; sleep 300; exit 1; }
+          sed -i 's/server_port=7860/server_port=8888/' chat-ui/app.py
+          export CHAT_UI_PASSWORD="${JUPYTER_PASSWORD}"
+          echo LAUNCHING_GRADIO
+          python -u chat-ui/app.py
+          """
+          args=json.dumps({'entrypoint':['/bin/bash','-lc'],'cmd':[shell]})
+          current=api('GET',base)
+          print('Before status',current.get('status'))
+          updated=api('PATCH',base,{'args':args})
+          print('Updated args match',updated.get('args')==args)
+          api('POST',base+'/action',{'action':'restart'})
+          print('Restart requested')
+          time.sleep(38)
+          lines=[]
+          url=base+'/logs?source=container&tail=120'
+          try:
+              req=urllib.request.Request(url,headers={'Authorization':'Bearer '+key,'Accept':'text/event-stream'})
+              with urllib.request.urlopen(req,timeout=18) as r:
+                  for i in range(180):
+                      raw=r.readline().decode('utf-8','replace').strip()
+                      if raw.startswith('data:'):
+                          try: lines.append(json.loads(raw[5:]).get('line',''))
+                          except: pass
+          except Exception as e:lines.append('LOG_FETCH_ERROR '+str(e)[:200])
+          status=api('GET',base)
+          print('After status',status.get('status'))
+          try:
+              with urllib.request.urlopen('https://'+pod+'-8888.proxy.runpod.net/',timeout=12) as r: ui='HTTP '+str(r.status)
+          except urllib.error.HTTPError as e:ui='HTTP '+str(e.code)
+          except Exception as e:ui='HTTP ERROR '+str(e)[:160]
+          print('UI:',ui)
+          body='Status: '+str(status.get('status'))+'\nUI: '+ui+'\n\n'+'\n'.join(lines[-100:])+'\n'
+          path='diagnostics/latest-boot.txt'
+          gh='https://api.github.com/repos/'+os.environ['REPO']+'/contents/'+path
+          ghheaders={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'}
+          try:
+              req=urllib.request.Request(gh,headers=ghheaders)
+              with urllib.request.urlopen(req) as r: sha=json.load(r)['sha']
+          except urllib.error.HTTPError as e:
+              if e.code!=404:raise
+              sha=None
+          payload={'message':'Record RunPod boot diagnostics','content':base64.b64encode(body.encode()).decode()}
+          if sha:payload['sha']=sha
+          req=urllib.request.Request(gh,headers=ghheaders,method='PUT',data=json.dumps(payload).encode())
+          with urllib.request.urlopen(req,timeout=30) as r:print('Saved diagnostics',r.status)
+          PY
