@@ -1,10 +1,72 @@
 name: Remote GPU deployment
 on:
   workflow_dispatch:
+permissions:
+  contents: read
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
-      - name: Verify installer
-        run: bash -n scripts/install.sh
+      - name: Verify installer and create SSH identity
+        run: |
+          bash -n scripts/install.sh
+          mkdir -p ~/.ssh
+          ssh-keygen -t ed25519 -N '' -f ~/.ssh/runpod_ai
+      - name: Register temporary SSH public key
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os,json,urllib.request
+          root='https://api.runpod.io/v2'
+          key=os.environ['RUNPOD_API_KEY'].strip()
+          headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'}
+          def call(path,method='GET',body=None):
+              req=urllib.request.Request(root+path,headers=headers,method=method,data=json.dumps(body).encode() if body is not None else None)
+              with urllib.request.urlopen(req,timeout=40) as r:return json.load(r)
+          data=call('/account/ssh-keys')
+          keys=data.get('keys',[])
+          pub=open(os.path.expanduser('~/.ssh/runpod_ai.pub')).read().strip()
+          if not any(k.split()[:2]==pub.split()[:2] for k in keys):
+              call('/account/ssh-keys','PUT',{'keys':keys+[pub]})
+          print('Deployment SSH key registered')
+          PY
+      - name: Restart existing pod to load SSH key
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os,json,time,urllib.request
+          root='https://api.runpod.io/v2/pods/o7nqskrov34oew'
+          headers={'Authorization':'Bearer '+os.environ['RUNPOD_API_KEY'].strip(),'Content-Type':'application/json'}
+          def call(path='',method='GET',body=None):
+              req=urllib.request.Request(root+path,headers=headers,method=method,data=json.dumps(body).encode() if body is not None else None)
+              with urllib.request.urlopen(req,timeout=45) as r:return json.load(r)
+          pod=call()
+          print('Initial pod status:',pod.get('status'))
+          if pod.get('status')=='RUNNING':
+              call('/action','POST',{'action':'stop'})
+              for i in range(36):
+                  time.sleep(5)
+                  pod=call()
+                  if pod.get('status')=='EXITED':break
+              else:raise RuntimeError('Pod did not stop')
+          call('/action','POST',{'action':'start'})
+          for i in range(72):
+              time.sleep(5)
+              pod=call()
+              if pod.get('status')=='RUNNING' and pod.get('ssh',{}).get('direct'):
+                  break
+          else:raise RuntimeError('Pod did not become SSH ready')
+          print('Pod running with SSH metadata')
+          PY
+      - name: Execute installation over SSH
+        run: |
+          for i in $(seq 1 30); do
+            if ssh -i ~/.ssh/runpod_ai -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=8 -p 22058 root@69.30.85.50 'echo CONNECTED'; then break; fi
+            sleep 10
+          done
+          ssh -i ~/.ssh/runpod_ai -o StrictHostKeyChecking=accept-new -o BatchMode=yes -p 22058 root@69.30.85.50 'bash -s' < scripts/install.sh
+          echo 'INSTALL_COMPLETED'
