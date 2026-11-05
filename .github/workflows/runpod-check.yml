@@ -16,7 +16,7 @@ jobs:
               raise SystemExit("RUNPOD_API_KEY secret is empty or unavailable")
           print("API secret is present (value hidden)")
           req=urllib.request.Request(
-              "https://rest.runpod.io/v1/pods",
+              "https://api.runpod.io/v2/pods",
               headers={"Authorization": "Bearer "+key, "Accept":"application/json"})
           try:
               with urllib.request.urlopen(req,timeout=25) as response:
@@ -28,7 +28,7 @@ jobs:
                       print("Pod:",pod.get("id"),"Status:",pod.get("desiredStatus",pod.get("status","unknown")))
           except urllib.error.HTTPError as e:
               print("RunPod API HTTP status:",e.code)
-              raise SystemExit("RunPod API rejected request; verify key scope and authorization")
+              raise SystemExit("RunPod v2 rejected request; check key authorization and response details")
           except Exception as e:
               raise SystemExit("RunPod API connection error: "+type(e).__name__+": "+str(e))
           PY
