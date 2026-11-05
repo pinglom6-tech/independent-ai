@@ -1,0 +1,95 @@
+name: Verify live Qwen model
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/verify-model.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify installer and create SSH identity
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keygen -t ed25519 -N '' -f ~/.ssh/runpod_ai
+      - name: Register temporary SSH public key
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os,json,urllib.request
+          root='https://api.runpod.io/v2'
+          key=os.environ['RUNPOD_API_KEY'].strip()
+          headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'}
+          def call(path,method='GET',body=None):
+              req=urllib.request.Request(root+path,headers=headers,method=method,data=json.dumps(body).encode() if body is not None else None)
+              with urllib.request.urlopen(req,timeout=40) as r:return json.load(r)
+          data=call('/account/ssh-keys')
+          keys=data.get('keys',[])
+          pub=open(os.path.expanduser('~/.ssh/runpod_ai.pub')).read().strip()
+          if not any(k.split()[:2]==pub.split()[:2] for k in keys):
+              call('/account/ssh-keys','PUT',{'keys':keys+[pub]})
+          print('Deployment SSH key registered')
+          PY
+      - name: Discover live SSH endpoints
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os,json,urllib.request
+          req=urllib.request.Request('https://api.runpod.io/v2/pods/o7nqskrov34oew',headers={'Authorization':'Bearer '+os.environ['RUNPOD_API_KEY'].strip()})
+          with urllib.request.urlopen(req,timeout=40) as r: pod=json.load(r)
+          print('Pod status:',pod.get('status'))
+          if pod.get('status')!='RUNNING':raise RuntimeError('Pod not running; refusing to restart without authorization')
+          ssh=pod.get('ssh') or {}
+          print('SSH metadata fields:',list(ssh))
+          direct=ssh.get('direct') or {}
+          proxy=ssh.get('proxy') or {}
+          with open(os.environ['GITHUB_ENV'],'a') as f:
+              f.write('POD_SSH_HOST='+str(direct.get('host',''))+'\n')
+              f.write('POD_SSH_PORT='+str(direct.get('port',''))+'\n')
+              if isinstance(proxy,dict):
+                  f.write('POD_PROXY_HOST='+str(proxy.get('host','ssh.runpod.io'))+'\n')
+                  f.write('POD_PROXY_USER='+str(proxy.get('user',proxy.get('username','')))+'\n')
+              elif isinstance(proxy,str):
+                  f.write('POD_PROXY_HOST=ssh.runpod.io\n')
+                  f.write('POD_PROXY_USER='+proxy.split('@')[0]+'\n')
+          PY
+      - name: Verify live model through SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          opts=(-i ~/.ssh/runpod_ai -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=8)
+          connected=0
+          for i in $(seq 1 5); do
+            if [[ -n "${POD_SSH_HOST:-}" && -n "${POD_SSH_PORT:-}" ]] && ssh "${opts[@]}" -p "$POD_SSH_PORT" "root@$POD_SSH_HOST" 'echo DIRECT_OK'; then
+              target="root@$POD_SSH_HOST"; port="$POD_SSH_PORT"; connected=1; break
+            fi
+            if [[ -n "${POD_PROXY_USER:-}" ]] && ssh "${opts[@]}" -p 22 "$POD_PROXY_USER@${POD_PROXY_HOST:-ssh.runpod.io}" 'echo PROXY_OK'; then
+              target="$POD_PROXY_USER@${POD_PROXY_HOST:-ssh.runpod.io}"; port=22; connected=1; break
+            fi
+            sleep 5
+          done
+          [[ "$connected" == 1 ]] || { echo 'SSH unavailable'; exit 1; }
+          ssh "${opts[@]}" -p "$port" "$target" 'python3 -' <<'PY'
+          import urllib.request,json,subprocess
+          print('Processes:',subprocess.getoutput("ps aux | grep -E '[v]llm|[s]tart-model'")[:1500])
+          print('Model log:',subprocess.getoutput('tail -n 35 /workspace/independent-ai/model.log 2>&1')[:4500])
+          try:
+              with urllib.request.urlopen('http://127.0.0.1:8000/v1/models',timeout=15) as r:
+                  models=json.load(r)
+              print('MODEL_ENDPOINT_OK',json.dumps(models)[:800])
+              model=models['data'][0]['id']
+              payload=json.dumps({'model':model,'messages':[{'role':'user','content':'Reply with exactly READY'}],'max_tokens':40}).encode()
+              req=urllib.request.Request('http://127.0.0.1:8000/v1/chat/completions',data=payload,headers={'Content-Type':'application/json'})
+              with urllib.request.urlopen(req,timeout=90) as r:
+                  result=json.load(r)
+              print('MODEL_RESPONSE_OK',json.dumps(result.get('choices',[]))[:1200])
+          except Exception as e:
+              print('MODEL_NOT_READY:',repr(e))
+              raise
+          PY
