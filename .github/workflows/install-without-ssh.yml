@@ -61,3 +61,26 @@ jobs:
                   break
           else:raise RuntimeError('Pod did not return to RUNNING')
           PY
+
+      - name: Record verification status
+        if: always()
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os,json,urllib.request
+          root='https://api.runpod.io/v2/pods/o7nqskrov34oew'
+          headers={'Authorization':'Bearer '+os.environ['RUNPOD_API_KEY'].strip()}
+          os.makedirs('diagnostics',exist_ok=True)
+          try:
+              with urllib.request.urlopen(urllib.request.Request(root,headers=headers),timeout=30) as r: pod=json.load(r)
+              status={'pod_status':pod.get('status'),'startup_args':pod.get('args'),'workflow':'install-without-ssh'}
+          except Exception as e: status={'error':str(e),'workflow':'install-without-ssh'}
+          with open('diagnostics/install-verification.json','w') as f:json.dump(status,f,indent=2)
+          print('VERIFICATION:',json.dumps(status))
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add diagnostics/install-verification.json
+          git commit -m 'Record installation verification' || true
+          git push
