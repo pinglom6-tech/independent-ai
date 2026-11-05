@@ -1,0 +1,5 @@
+{
+  "pod_status": "RUNNING",
+  "startup_args": "bash -lc 'bash /workspace/install.sh > /workspace/install-output.log 2>&1 && cd /workspace/independent-ai && ./start-model.sh >> /workspace/install-output.log 2>&1'",
+  "workflow": "install-without-ssh"
+}
