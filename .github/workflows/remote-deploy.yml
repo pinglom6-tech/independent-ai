@@ -1,9 +1,6 @@
 name: Remote GPU deployment
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/remote-deploy.yml'
 permissions:
   contents: write
 jobs:
@@ -40,49 +37,50 @@ jobs:
               call('/account/ssh-keys','PUT',{'keys':keys+[pub]})
           print('Deployment SSH key registered')
           PY
-      - name: Restart existing pod to load SSH key
+      - name: Discover live SSH endpoints
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
         run: |
           python3 - <<'PY'
-          import os,json,time,urllib.request
-          root='https://api.runpod.io/v2/pods/o7nqskrov34oew'
-          headers={'Authorization':'Bearer '+os.environ['RUNPOD_API_KEY'].strip(),'Content-Type':'application/json'}
-          def call(path='',method='GET',body=None):
-              req=urllib.request.Request(root+path,headers=headers,method=method,data=json.dumps(body).encode() if body is not None else None)
-              with urllib.request.urlopen(req,timeout=45) as r:return json.load(r)
-          pod=call()
-          print('Initial pod status:',pod.get('status'))
-          if pod.get('status')=='RUNNING':
-              call('/action','POST',{'action':'stop'})
-              for i in range(36):
-                  time.sleep(5)
-                  pod=call()
-                  if pod.get('status')=='EXITED':break
-              else:raise RuntimeError('Pod did not stop')
-          call('/action','POST',{'action':'start'})
-          for i in range(72):
-              time.sleep(5)
-              pod=call()
-              if pod.get('status')=='RUNNING' and pod.get('ssh',{}).get('direct'):
-                  break
-          else:raise RuntimeError('Pod did not become SSH ready')
-          print('Pod running with SSH metadata')
-          direct=pod['ssh']['direct']
-          with open(os.environ['GITHUB_ENV'],'a') as out:
-              out.write('POD_SSH_HOST='+str(direct['host'])+'\n')
-              out.write('POD_SSH_PORT='+str(direct['port'])+'\n')
+          import os,json,urllib.request
+          req=urllib.request.Request('https://api.runpod.io/v2/pods/o7nqskrov34oew',headers={'Authorization':'Bearer '+os.environ['RUNPOD_API_KEY'].strip()})
+          with urllib.request.urlopen(req,timeout=40) as r: pod=json.load(r)
+          print('Pod status:',pod.get('status'))
+          if pod.get('status')!='RUNNING':raise RuntimeError('Pod not running; refusing to restart without authorization')
+          ssh=pod.get('ssh') or {}
+          print('SSH metadata fields:',list(ssh))
+          direct=ssh.get('direct') or {}
+          proxy=ssh.get('proxy') or {}
+          with open(os.environ['GITHUB_ENV'],'a') as f:
+              f.write('POD_SSH_HOST='+str(direct.get('host',''))+'\n')
+              f.write('POD_SSH_PORT='+str(direct.get('port',''))+'\n')
+              if isinstance(proxy,dict):
+                  f.write('POD_PROXY_HOST='+str(proxy.get('host','ssh.runpod.io'))+'\n')
+                  f.write('POD_PROXY_USER='+str(proxy.get('user',proxy.get('username','')))+'\n')
+              elif isinstance(proxy,str):
+                  f.write('POD_PROXY_HOST=ssh.runpod.io\n')
+                  f.write('POD_PROXY_USER='+proxy.split('@')[0]+'\n')
           PY
-      - name: Execute installation over SSH
+      - name: Execute installation using direct SSH or RunPod proxy
+        shell: bash
         run: |
-          for i in $(seq 1 30); do
-            if ssh -i ~/.ssh/runpod_ai -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=8 -p $POD_SSH_PORT root@$POD_SSH_HOST 'echo CONNECTED'; then break; fi
+          set -euo pipefail
+          opts=(-i ~/.ssh/runpod_ai -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=8)
+          connected=0
+          for i in $(seq 1 12); do
+            if [[ -n "${POD_SSH_HOST:-}" && -n "${POD_SSH_PORT:-}" ]] && ssh "${opts[@]}" -p "$POD_SSH_PORT" "root@$POD_SSH_HOST" 'echo DIRECT_SSH_OK'; then
+              target="root@$POD_SSH_HOST"; port="$POD_SSH_PORT"; connected=1; break
+            fi
+            if [[ -n "${POD_PROXY_USER:-}" ]] && ssh "${opts[@]}" -p 22 "$POD_PROXY_USER@${POD_PROXY_HOST:-ssh.runpod.io}" 'echo PROXY_SSH_OK'; then
+              target="$POD_PROXY_USER@${POD_PROXY_HOST:-ssh.runpod.io}"; port=22; connected=1; break
+            fi
+            echo "SSH not ready (attempt $i/12)"
             sleep 10
           done
-          ssh -i ~/.ssh/runpod_ai -o StrictHostKeyChecking=accept-new -o BatchMode=yes -p $POD_SSH_PORT root@$POD_SSH_HOST 'bash -s' < scripts/install.sh
+          if [[ "$connected" != 1 ]]; then echo 'Neither direct nor proxy SSH accessible'; exit 1; fi
+          ssh "${opts[@]}" -p "$port" "$target" 'bash -s' < scripts/install.sh
           echo 'INSTALL_COMPLETED'
-          ssh -i ~/.ssh/runpod_ai -o StrictHostKeyChecking=accept-new -o BatchMode=yes -p $POD_SSH_PORT root@$POD_SSH_HOST 'cd /workspace/independent-ai && nohup ./start-model.sh > model.log 2>&1 < /dev/null &'
-          echo 'MODEL_LAUNCH_REQUESTED'
+          ssh "${opts[@]}" -p "$port" "$target" 'cd /workspace/independent-ai && nohup ./start-model.sh > model.log 2>&1 < /dev/null &'
           echo 'MODEL_LAUNCH_REQUESTED' > diagnostics/deploy-status.txt
       - name: Publish deployment status
         if: always()
