@@ -22,7 +22,7 @@ jobs:
           python3 - <<'PY'
           import os,json,urllib.request,urllib.error,time,base64
           pod='o7nqskrov34oew'
-          time.sleep(65)
+          time.sleep(100)
           key=os.environ['RUNPOD_API_KEY'].strip()
           req=urllib.request.Request(f'https://api.runpod.io/v2/pods/{pod}',headers={'Authorization':'Bearer '+key})
           with urllib.request.urlopen(req,timeout=25) as resp: p=json.load(resp)
