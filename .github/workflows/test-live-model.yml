@@ -1,0 +1,46 @@
+name: Test live AI model endpoint
+on:
+  push:
+    paths:
+      - '.github/workflows/test-live-model.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe model endpoint
+        run: |
+          python3 - <<'PY'
+          import json,urllib.request,datetime,os
+          pod='o7nqskrov34oew'
+          endpoints=['https://'+pod+'-8000.proxy.runpod.net/v1/models','https://'+pod+'-8000.proxy.runpod.net/health']
+          result={'checked_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'probes':[]}
+          for url in endpoints:
+              try:
+                  req=urllib.request.Request(url,headers={'Accept':'application/json'})
+                  with urllib.request.urlopen(req,timeout=15) as r:
+                      body=r.read(1200).decode('utf-8','replace')
+                      result['probes'].append({'url':url,'status':r.status,'body':body})
+              except Exception as e:result['probes'].append({'url':url,'error':str(e)})
+          if any(x.get('status')==200 and '/v1/models' in x['url'] for x in result['probes']):
+              url='https://'+pod+'-8000.proxy.runpod.net/v1/chat/completions'
+              body={'model':'Qwen/Qwen3.5-27B','messages':[{'role':'user','content':'Reply with the single word READY'}],'max_tokens':32}
+              try:
+                  req=urllib.request.Request(url,data=json.dumps(body).encode(),headers={'Content-Type':'application/json'})
+                  with urllib.request.urlopen(req,timeout=45) as r:result['chat_test']={'status':r.status,'response':r.read(1500).decode('utf-8','replace')}
+              except Exception as e:result['chat_test']={'error':str(e)}
+          os.makedirs('diagnostics',exist_ok=True)
+          with open('diagnostics/model-test.json','w') as f:json.dump(result,f,indent=2)
+          print(json.dumps(result))
+          PY
+      - name: Publish test
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add diagnostics/model-test.json
+          git commit -m 'Record model endpoint test' || true
+          git push
