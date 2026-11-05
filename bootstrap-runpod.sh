@@ -3,14 +3,12 @@ set -Eeuo pipefail
 exec > >(tee -a /workspace/independent-ai-boot.log) 2>&1
 set -x
 echo "BOOTSTRAP_BEGIN $(date -u)"
-cd /workspace
-if [ ! -d independent-ai/.git ]; then
-  rm -rf /workspace/independent-ai
-  git clone --depth 1 https://github.com/pinglom6-tech/independent-ai.git /workspace/independent-ai
-else
-  git -C /workspace/independent-ai pull --ff-only
-fi
+# Avoid git clone on RunPod network volume: its chmod operations are unsupported.
+mkdir -p /workspace/independent-ai
 cd /workspace/independent-ai
+curl -fL --retry 3 --connect-timeout 15 https://github.com/pinglom6-tech/independent-ai/archive/refs/heads/main.tar.gz -o /tmp/independent-ai.tar.gz
+tar -xzf /tmp/independent-ai.tar.gz -C /workspace/independent-ai --strip-components=1
+echo PROJECT_EXTRACTED
 python3 -m venv --system-site-packages /workspace/independent-ai-venv
 source /workspace/independent-ai-venv/bin/activate
 python -m pip install -U pip
