@@ -1,0 +1,44 @@
+name: Diagnose current pod SSH authentication
+on:
+  push:
+    paths: ['.github/workflows/diagnose-current-ssh.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Generate temporary key and register with RunPod
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          set -euo pipefail
+          ssh-keygen -t ed25519 -N '' -f /tmp/current_pod_key >/dev/null
+          python3 - <<'PY'
+          import os,json,urllib.request
+          key=os.environ.get('RUNPOD_API_KEY','').strip()
+          if not key: raise RuntimeError('RUNPOD_API_KEY missing')
+          root='https://api.runpod.io/v2'
+          headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'}
+          def call(path,method='GET',body=None):
+              req=urllib.request.Request(root+path,headers=headers,method=method,data=json.dumps(body).encode() if body is not None else None)
+              with urllib.request.urlopen(req,timeout=25) as r: return json.load(r)
+          pub=open('/tmp/current_pod_key.pub').read().strip()
+          keys=call('/account/ssh-keys').get('keys',[])
+          if not any(k.split()[:2]==pub.split()[:2] for k in keys):
+              call('/account/ssh-keys','PUT',{'keys':keys+[pub]})
+          pod=call('/pods/yad9431x3mx9xf')
+          print('POD STATUS',pod.get('status'),'SSH metadata present',bool(pod.get('ssh')))
+          PY
+      - name: Attempt SSH authentication without pod restart
+        shell: bash
+        run: |
+          set +e
+          opts=(-T -i /tmp/current_pod_key -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=8 -o NumberOfPasswordPrompts=0)
+          timeout 20 ssh "${opts[@]}" -p 22113 root@69.30.85.142 'echo AUTHENTICATED_DIRECT' 2>&1
+          echo "DIRECT_EXIT=$?"
+          timeout 20 ssh "${opts[@]}" -p 22 yad9431x3mx9xf-644128dd@ssh.runpod.io 'echo AUTHENTICATED_PROXY' 2>&1
+          echo "PROXY_EXIT=$?"
+          exit 0
