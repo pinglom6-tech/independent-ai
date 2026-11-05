@@ -1,0 +1,13 @@
+{
+  "checked_at": "2026-11-05T16:30:13.435988+00:00",
+  "probes": [
+    {
+      "url": "https://o7nqskrov34oew-8000.proxy.runpod.net/v1/models",
+      "error": "HTTP Error 403: Forbidden"
+    },
+    {
+      "url": "https://o7nqskrov34oew-8000.proxy.runpod.net/health",
+      "error": "HTTP Error 403: Forbidden"
+    }
+  ]
+}
