@@ -18,7 +18,8 @@ jobs:
           import os, json, urllib.request
           pod = "o7nqskrov34oew"
           url = f"https://api.runpod.io/v2/pods/{pod}"
-          script = """bash -lc 'bash /workspace/install.sh > /workspace/install-output.log 2>&1; cd /workspace/independent-ai || exit 1; (./start-model.sh >> /workspace/install-output.log 2>&1) & python -m pip install -q gradio openai >> /workspace/install-output.log 2>&1; test -f chat-ui/app.py || { echo Missing-chat-ui >> /workspace/install-output.log; exit 1; }; sed -i "s/server_port=7860/server_port=8888/" chat-ui/app.py; export CHAT_UI_PASSWORD="${JUPYTER_PASSWORD}"; python chat-ui/app.py >> /workspace/chat-ui.log 2>&1'"""
+          script = "bash -lc 'curl -fsSL https://raw.githubusercontent.com/pinglom6-tech/independent-ai/main/bootstrap-runpod.sh -o /tmp/bootstrap-runpod.sh && bash /tmp/bootstrap-runpod.sh'"
+
           headers = {"Authorization": "Bearer " + os.environ["RUNPOD_API_KEY"].strip(), "Content-Type": "application/json"}
           def call(method, address, data=None):
               req=urllib.request.Request(address,headers=headers,method=method,data=json.dumps(data).encode() if data is not None else None)
