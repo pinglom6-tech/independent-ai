@@ -1,0 +1,68 @@
+name: Verify current Qwen runtime
+on:
+  push:
+    paths: ['.github/workflows/verify-current-runtime.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - name: Check authenticated UI and model through public HTTPS
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os, json, base64, time, urllib.request, urllib.error
+          pod_id = 'yad9431x3mx9xf'
+          request = urllib.request.Request(
+              'https://api.runpod.io/v2/pods/' + pod_id,
+              headers={'Authorization': 'Bearer ' + os.environ['RUNPOD_API_KEY'].strip()})
+          with urllib.request.urlopen(request, timeout=30) as response:
+              pod = json.load(response)
+          password = pod.get('env', {}).get('JUPYTER_PASSWORD', '')
+          if not password or password == '[redacted]':
+              raise SystemExit('Pod login password unavailable; no credential printed.')
+          print('::add-mask::' + password)
+          base = 'https://' + pod_id + '-8888.proxy.runpod.net'
+          auth = 'Basic ' + base64.b64encode(('owner:' + password).encode()).decode()
+          headers = {'Authorization': auth, 'User-Agent': 'Mozilla/5.0', 'Content-Type': 'application/json'}
+          for attempt in range(60):
+              try:
+                  request = urllib.request.Request(base + '/health', headers=headers)
+                  with urllib.request.urlopen(request, timeout=10) as response:
+                      health = json.load(response)
+                  if health.get('model_ready'):
+                      print('PUBLIC_HTTPS_MODEL_READY')
+                      break
+              except (urllib.error.URLError, TimeoutError) as error:
+                  print('Waiting for runtime:', type(error).__name__, getattr(error, 'code', ''))
+              time.sleep(12)
+          else:
+              raise SystemExit('Runtime did not become ready within 12 minutes')
+          with urllib.request.urlopen(urllib.request.Request(base + '/', headers=headers), timeout=20) as response:
+              page = response.read().decode()
+              assert response.status == 200 and 'Independent AI' in page
+          print('AUTHENTICATED_UI_PASSED')
+          try:
+              urllib.request.urlopen(base + '/health', timeout=20)
+              raise AssertionError('Unauthenticated request was allowed')
+          except urllib.error.HTTPError as error:
+              assert error.code == 401, error.code
+          print('UNAUTHENTICATED_REQUEST_BLOCKED')
+          payload = {
+              'messages': [{'role':'user','content':'What is the capital of France? Reply with only the city name.'}],
+              'max_tokens': 128,
+              'temperature': 0,
+              'chat_template_kwargs': {'enable_thinking': False}
+          }
+          request = urllib.request.Request(base + '/v1/chat/completions', data=json.dumps(payload).encode(), headers=headers)
+          with urllib.request.urlopen(request, timeout=180) as response:
+              result = json.load(response)
+          answer = result['choices'][0]['message']['content'].strip()
+          print('MODEL_ANSWER:', repr(answer))
+          assert answer.lower().strip(' .!') == 'paris', 'Unexpected answer'
+          print('EXTERNAL_CHAT_TEST_PASSED')
+          PY
