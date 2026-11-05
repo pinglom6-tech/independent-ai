@@ -85,3 +85,5 @@ jobs:
           ssh "${opts[@]}" -p "$port" "$target" 'cd /workspace/independent-ai && nohup bash -c '\''export CHAT_UI_PASSWORD="$(cat .chat-password)"; exec python3 chat-app.py'\'' > chat-ui.log 2>&1 < /dev/null &'
         env:
           CHAT_UI_PASSWORD: ${{ secrets.CHAT_UI_PASSWORD }}
+
+# Retrigger after private access password was configured.
