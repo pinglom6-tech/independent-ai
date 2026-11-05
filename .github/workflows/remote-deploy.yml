@@ -1,6 +1,9 @@
 name: Remote GPU deployment
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/remote-deploy.yml'
 permissions:
   contents: read
 jobs:
@@ -74,3 +77,5 @@ jobs:
           done
           ssh -i ~/.ssh/runpod_ai -o StrictHostKeyChecking=accept-new -o BatchMode=yes -p $POD_SSH_PORT root@$POD_SSH_HOST 'bash -s' < scripts/install.sh
           echo 'INSTALL_COMPLETED'
+          ssh -i ~/.ssh/runpod_ai -o StrictHostKeyChecking=accept-new -o BatchMode=yes -p $POD_SSH_PORT root@$POD_SSH_HOST 'cd /workspace/independent-ai && nohup ./start-model.sh > model.log 2>&1 < /dev/null &'
+          echo 'MODEL_LAUNCH_REQUESTED'
