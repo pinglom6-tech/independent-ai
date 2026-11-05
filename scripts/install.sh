@@ -3,8 +3,8 @@ set -euo pipefail
 mkdir -p /workspace/independent-ai /workspace/hf-cache
 python3 -m pip install --upgrade uv
 uv pip install --system vllm --torch-backend=auto --extra-index-url https://wheels.vllm.ai/nightly
-python3 -m pip install --upgrade huggingface_hub
-cat > /workspace/independent-ai/start-model.sh &lt;&lt;'EOF'
+python3 -m pip install --upgrade huggingface_hub bitsandbytes
+cat > /workspace/independent-ai/start-model.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 export HF_HOME=/workspace/hf-cache
