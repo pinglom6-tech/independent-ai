@@ -4,8 +4,11 @@ on:
     paths:
       - '.github/workflows/diagnose-runpod-ui.yml'
   workflow_dispatch:
+  workflow_run:
+    workflows: ["Fix RunPod startup"]
+    types: [completed]
 permissions:
-  contents: read
+  contents: write
 jobs:
   diagnose:
     runs-on: ubuntu-latest
@@ -15,7 +18,7 @@ jobs:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
         run: |
           python3 - <<'PY'
-          import os,json,urllib.request,urllib.error,time
+          import os,json,urllib.request,urllib.error,time,base64
           pod='o7nqskrov34oew'
           key=os.environ['RUNPOD_API_KEY'].strip()
           req=urllib.request.Request(f'https://api.runpod.io/v2/pods/{pod}',headers={'Authorization':'Bearer '+key})
