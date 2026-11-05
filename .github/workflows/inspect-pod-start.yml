@@ -1,0 +1,21 @@
+name: Inspect stopped pod start options
+on:
+  push:
+    paths: ['.github/workflows/inspect-pod-start.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os,json,urllib.request
+          u='https://api.runpod.io/v2/pods/o7nqskrov34oew'
+          h={'Authorization':'Bearer '+os.environ['RUNPOD_API_KEY'].strip()}
+          with urllib.request.urlopen(urllib.request.Request(u,headers=h),timeout=30) as r:p=json.load(r)
+          for k in ('id','status','actions','gpu','cloud','runtime','error','image','args'):
+              print(k,':',str(p.get(k))[:1000])
+          PY
