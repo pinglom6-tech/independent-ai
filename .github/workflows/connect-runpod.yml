@@ -1,0 +1,40 @@
+name: Establish RunPod SSH access
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  connect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Install RunPod CLI
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,urllib.request,os
+          req=urllib.request.Request('https://api.github.com/repos/runpod/runpodctl/releases/latest',headers={'User-Agent':'independent-ai'})
+          data=json.load(urllib.request.urlopen(req))
+          for a in data['assets']:
+            print(a['name'])
+          PY
+          curl -fsSL https://github.com/runpod/runpodctl/releases/latest/download/runpodctl-linux-amd64 -o /tmp/runpodctl || true
+          if file /tmp/runpodctl 2>/dev/null | grep -q ELF; then
+            sudo install -m 755 /tmp/runpodctl /usr/local/bin/runpodctl
+          else
+            echo 'CLI asset name differs; inspect release assets above'; exit 1
+          fi
+          runpodctl version
+      - name: Register temporary SSH key and inspect target pod
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+          POD_ID: o7nqskrov34oew
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keygen -q -t ed25519 -f ~/.ssh/id_ed25519 -N ''
+          runpodctl ssh add-key --key-file ~/.ssh/id_ed25519.pub
+          runpodctl pod get "$POD_ID" || true
+          runpodctl ssh info "$POD_ID"
+          echo 'SSH registration and connection details requested. No GPU started.'
