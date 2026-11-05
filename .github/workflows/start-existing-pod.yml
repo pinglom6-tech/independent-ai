@@ -23,5 +23,9 @@ jobs:
               print('Already running; no action taken')
           else:
               req=urllib.request.Request(base+'/action',headers=h,method='POST',data=json.dumps({'action':'start'}).encode())
-              with urllib.request.urlopen(req,timeout=30) as r: print('START RESPONSE',r.status,r.read().decode()[:900])
+              try:
+                  with urllib.request.urlopen(req,timeout=30) as r: print('START RESPONSE',r.status,r.read().decode()[:1200])
+              except urllib.error.HTTPError as e:
+                  print('START REJECTED',e.code,e.read().decode()[:2000])
+                  raise SystemExit(1)
           PY
