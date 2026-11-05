@@ -5,13 +5,17 @@ on:
     paths:
       - '.github/workflows/remote-deploy.yml'
 permissions:
-  contents: read
+  contents: write
 jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
+      - name: Record deployment start
+        run: |
+          mkdir -p diagnostics
+          echo 'DEPLOYMENT_STARTED' > diagnostics/deploy-status.txt
       - name: Verify installer and create SSH identity
         run: |
           bash -n scripts/install.sh
@@ -79,3 +83,13 @@ jobs:
           echo 'INSTALL_COMPLETED'
           ssh -i ~/.ssh/runpod_ai -o StrictHostKeyChecking=accept-new -o BatchMode=yes -p $POD_SSH_PORT root@$POD_SSH_HOST 'cd /workspace/independent-ai && nohup ./start-model.sh > model.log 2>&1 < /dev/null &'
           echo 'MODEL_LAUNCH_REQUESTED'
+          echo 'MODEL_LAUNCH_REQUESTED' > diagnostics/deploy-status.txt
+      - name: Publish deployment status
+        if: always()
+        run: |
+          if [ "${{ job.status }}" != 'success' ]; then echo 'DEPLOYMENT_FAILED' > diagnostics/deploy-status.txt; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add diagnostics/deploy-status.txt
+          git commit -m 'Record remote deployment status' || exit 0
+          git push
