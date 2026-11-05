@@ -1,0 +1,27 @@
+name: Start existing RunPod once
+on:
+  push:
+    paths: ['.github/workflows/start-existing-pod.yml']
+permissions:
+  contents: read
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Start existing pod without reinstall commands
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os,json,urllib.request,urllib.error
+          pod='o7nqskrov34oew'
+          h={'Authorization':'Bearer '+os.environ['RUNPOD_API_KEY'].strip(),'Content-Type':'application/json'}
+          base=f'https://api.runpod.io/v2/pods/{pod}'
+          with urllib.request.urlopen(urllib.request.Request(base,headers=h),timeout=30) as r: p=json.load(r)
+          print('CURRENT STATUS',p.get('status'))
+          if p.get('status')=='RUNNING':
+              print('Already running; no action taken')
+          else:
+              req=urllib.request.Request(base+'/action',headers=h,method='POST',data=json.dumps({'action':'start'}).encode())
+              with urllib.request.urlopen(req,timeout=30) as r: print('START RESPONSE',r.status,r.read().decode()[:900])
+          PY
