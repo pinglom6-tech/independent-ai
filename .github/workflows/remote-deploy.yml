@@ -61,12 +61,16 @@ jobs:
                   break
           else:raise RuntimeError('Pod did not become SSH ready')
           print('Pod running with SSH metadata')
+          direct=pod['ssh']['direct']
+          with open(os.environ['GITHUB_ENV'],'a') as out:
+              out.write('POD_SSH_HOST='+str(direct['host'])+'\n')
+              out.write('POD_SSH_PORT='+str(direct['port'])+'\n')
           PY
       - name: Execute installation over SSH
         run: |
           for i in $(seq 1 30); do
-            if ssh -i ~/.ssh/runpod_ai -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=8 -p 22058 root@69.30.85.50 'echo CONNECTED'; then break; fi
+            if ssh -i ~/.ssh/runpod_ai -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=8 -p $POD_SSH_PORT root@$POD_SSH_HOST 'echo CONNECTED'; then break; fi
             sleep 10
           done
-          ssh -i ~/.ssh/runpod_ai -o StrictHostKeyChecking=accept-new -o BatchMode=yes -p 22058 root@69.30.85.50 'bash -s' < scripts/install.sh
+          ssh -i ~/.ssh/runpod_ai -o StrictHostKeyChecking=accept-new -o BatchMode=yes -p $POD_SSH_PORT root@$POD_SSH_HOST 'bash -s' < scripts/install.sh
           echo 'INSTALL_COMPLETED'
