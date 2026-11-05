@@ -1,0 +1,38 @@
+name: Inspect RunPod deployment
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-runpod.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect pod without starting GPU
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os,json,urllib.request,urllib.error
+          key=os.environ['RUNPOD_API_KEY']
+          req=urllib.request.Request('https://api.runpod.io/v2/pods',headers={'Authorization':'Bearer '+key})
+          with urllib.request.urlopen(req,timeout=30) as r: data=json.load(r)
+          pods=data if isinstance(data,list) else data.get('pods',[])
+          fields=('id','name','status','desiredStatus','image','imageName','templateId','ports','volumeMountPath','actions','gpu','env','dockerArgs','dockerStartCmd')
+          def clean(p):
+              d={k:p.get(k) for k in fields if k in p and k!='env'}
+              if 'env' in p: d['env_keys']=list(p['env']) if isinstance(p['env'],dict) else 'configured'
+              return d
+          os.makedirs('diagnostics',exist_ok=True)
+          with open('diagnostics/pod-status.json','w') as f:json.dump({'pods':[clean(p) for p in pods]},f,indent=2)
+          print('Found',len(pods),'pods. No pods started.')
+          PY
+      - name: Commit diagnostic status
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add diagnostics/pod-status.json
+          git diff --cached --quiet || (git commit -m 'Record RunPod pod configuration' && git push)
