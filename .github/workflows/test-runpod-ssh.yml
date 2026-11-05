@@ -11,13 +11,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Test SSH network access without credentials
+      - name: Test SSH network access without credentials (retry)
         shell: bash
         run: |
           python3 - <<'PY'
           import socket
-          targets=[('69.30.85.142',22113),('ssh.runpod.io',22)]
-          for host,port in targets:
+          for host,port in [('69.30.85.142',22113),('ssh.runpod.io',22)]:
               try:
                   with socket.create_connection((host,port),timeout=8) as s:
                       s.settimeout(4)
