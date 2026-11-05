@@ -4,10 +4,10 @@ exec > >(tee -a /workspace/independent-ai-boot.log) 2>&1
 set -x
 echo "BOOTSTRAP_BEGIN $(date -u)"
 # Avoid git clone on RunPod network volume: its chmod operations are unsupported.
-mkdir -p /workspace/independent-ai
-cd /workspace/independent-ai
+mkdir -p /tmp/independent-ai
+cd /tmp/independent-ai
 curl -fL --retry 3 --connect-timeout 15 https://github.com/pinglom6-tech/independent-ai/archive/refs/heads/main.tar.gz -o /tmp/independent-ai.tar.gz
-tar --no-same-owner --no-same-permissions -xzf /tmp/independent-ai.tar.gz -C /workspace/independent-ai --strip-components=1
+tar -xzf /tmp/independent-ai.tar.gz -C /tmp/independent-ai --strip-components=1
 echo PROJECT_EXTRACTED
 python3 -m venv --system-site-packages /tmp/independent-ai-venv
 source /tmp/independent-ai-venv/bin/activate
