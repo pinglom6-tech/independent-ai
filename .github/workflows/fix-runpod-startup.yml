@@ -3,7 +3,9 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - '.github/workflows/fix-runpod-startup.yml'
+      - ".github/workflows/fix-runpod-startup.yml"
+      - "bootstrap-runpod.sh"
+
 permissions:
   contents: read
 jobs:
