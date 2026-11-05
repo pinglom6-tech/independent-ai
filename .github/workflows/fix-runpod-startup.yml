@@ -31,4 +31,10 @@ jobs:
           after=call("GET",url)
           print("Verified args:",after.get("args")==script)
           if after.get("args")!=script: raise SystemExit("Startup command not saved")
+          print("Restarting existing pod to apply startup command")
+          try:
+              restart=call("POST",url+"/action",{"action":"restart"})
+              print("Restart requested:",str(restart)[:350])
+          except Exception as exc:
+              raise SystemExit("Startup updated, but restart failed: "+str(exc))
           PY
