@@ -1,0 +1,21 @@
+name: Check RunPod API
+on:
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check API authentication
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$RUNPOD_API_KEY" || { echo 'Missing secret'; exit 1; }
+          code=$(curl -sS -o /tmp/pods.json -w '%{http_code}' -H "Authorization: Bearer $RUNPOD_API_KEY" https://rest.runpod.io/v1/pods)
+          echo "HTTP status: $code"
+          test "$code" = 200
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/pods.json'))
+          print('Authenticated to RunPod; response type:',type(x).__name__)
+          PY
