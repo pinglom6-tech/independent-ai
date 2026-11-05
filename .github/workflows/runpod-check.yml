@@ -9,13 +9,26 @@ jobs:
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
         run: |
-          set -euo pipefail
-          test -n "$RUNPOD_API_KEY" || { echo 'Missing secret'; exit 1; }
-          code=$(curl -sS -o /tmp/pods.json -w '%{http_code}' -H "Authorization: Bearer $RUNPOD_API_KEY" https://rest.runpod.io/v1/pods)
-          echo "HTTP status: $code"
-          test "$code" = 200
           python3 - <<'PY'
-          import json
-          x=json.load(open('/tmp/pods.json'))
-          print('Authenticated to RunPod; response type:',type(x).__name__)
+          import os, json, urllib.request, urllib.error
+          key=os.environ.get("RUNPOD_API_KEY","").strip()
+          if not key:
+              raise SystemExit("RUNPOD_API_KEY secret is empty or unavailable")
+          print("API secret is present (value hidden)")
+          req=urllib.request.Request(
+              "https://rest.runpod.io/v1/pods",
+              headers={"Authorization": "Bearer "+key, "Accept":"application/json"})
+          try:
+              with urllib.request.urlopen(req,timeout=25) as response:
+                  data=json.load(response)
+                  print("RunPod API HTTP status:",response.status)
+                  pods=data if isinstance(data,list) else data.get("pods",[])
+                  print("Accessible pods:",len(pods))
+                  for pod in pods:
+                      print("Pod:",pod.get("id"),"Status:",pod.get("desiredStatus",pod.get("status","unknown")))
+          except urllib.error.HTTPError as e:
+              print("RunPod API HTTP status:",e.code)
+              raise SystemExit("RunPod API rejected request; verify key scope and authorization")
+          except Exception as e:
+              raise SystemExit("RunPod API connection error: "+type(e).__name__+": "+str(e))
           PY
