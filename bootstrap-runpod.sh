@@ -3,12 +3,12 @@ set -Eeuo pipefail
 exec > >(tee -a /workspace/independent-ai-boot.log) 2>&1
 set -x
 echo "BOOTSTRAP_BEGIN $(date -u)"
-# Avoid git clone on RunPod network volume: its chmod operations are unsupported.
-mkdir -p /tmp/independent-ai
+# Download only the required application file; no git, tar, chmod or volume extraction.
+mkdir -p /tmp/independent-ai/chat-ui
 cd /tmp/independent-ai
-curl -fL --retry 3 --connect-timeout 15 https://github.com/pinglom6-tech/independent-ai/archive/refs/heads/main.tar.gz -o /tmp/independent-ai.tar.gz
-tar --touch --no-same-owner --no-same-permissions -xzf /tmp/independent-ai.tar.gz -C /tmp/independent-ai --strip-components=1
-echo PROJECT_EXTRACTED
+curl -fL --retry 3 --connect-timeout 15 https://raw.githubusercontent.com/pinglom6-tech/independent-ai/main/chat-ui/app.py -o chat-ui/app.py
+test -s chat-ui/app.py
+echo PROJECT_READY
 python3 -m venv --system-site-packages /tmp/independent-ai-venv
 source /tmp/independent-ai-venv/bin/activate
 python -m pip install -U pip
