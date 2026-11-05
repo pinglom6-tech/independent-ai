@@ -1,0 +1,7 @@
+{
+  "checked_at": "2026-11-05T16:29:08.410117+00:00",
+  "pod_status": "RUNNING",
+  "startup_args": "bash -lc 'bash /workspace/install.sh > /workspace/install-output.log 2>&1 && cd /workspace/independent-ai && ./start-model.sh >> /workspace/install-output.log 2>&1'",
+  "image": "runpod/pytorch:1.5.0-cu1281-torch280-ubuntu2404",
+  "ssh_direct_available": false
+}
