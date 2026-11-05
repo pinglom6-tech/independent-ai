@@ -25,7 +25,7 @@ jobs:
             echo 'CLI asset name differs; inspect release assets above'; exit 1
           fi
           runpodctl version
-      - name: Register temporary SSH key and inspect target pod
+      - name: Inspect target pod and SSH endpoint
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
           POD_ID: o7nqskrov34oew
@@ -34,7 +34,8 @@ jobs:
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           ssh-keygen -q -t ed25519 -f ~/.ssh/id_ed25519 -N ''
-          runpodctl ssh add-key --key-file ~/.ssh/id_ed25519.pub
-          runpodctl pod get "$POD_ID" || true
+          echo 'Checking pod state via authenticated REST v2 (without SSH key registration)'
+          runpodctl pod get "$POD_ID"
+          echo 'Checking SSH connection details (read-only)'
           runpodctl ssh info "$POD_ID"
-          echo 'SSH registration and connection details requested. No GPU started.'
+          echo 'Pod and SSH inspection completed. No GPU started.'
