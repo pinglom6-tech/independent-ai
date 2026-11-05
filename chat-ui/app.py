@@ -16,4 +16,7 @@ def respond(message, history):
 
 app = gr.ChatInterface(fn=respond, type="messages", title="Independent AI", description="Private Qwen chatbot", chatbot=gr.Chatbot(type="messages", height=520))
 if __name__ == "__main__":
-    app.launch(server_name="0.0.0.0", server_port=7860, show_error=True)
+    password = os.environ.get("CHAT_UI_PASSWORD")
+    if not password:
+        raise RuntimeError("CHAT_UI_PASSWORD is required")
+    app.launch(server_name="0.0.0.0", server_port=7860, auth=("owner", password), show_error=True)
