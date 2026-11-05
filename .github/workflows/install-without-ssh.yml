@@ -1,0 +1,63 @@
+name: Install without SSH
+on:
+  push:
+    paths:
+      - '.github/workflows/install-without-ssh.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure RunPod startup installation
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os,json,urllib.request,time
+          root='https://api.runpod.io/v2/pods/o7nqskrov34oew'
+          headers={'Authorization':'Bearer '+os.environ['RUNPOD_API_KEY'].strip(),'Content-Type':'application/json'}
+          def api(method='GET',data=None):
+              req=urllib.request.Request(root,method=method,headers=headers,data=json.dumps(data).encode() if data is not None else None)
+              with urllib.request.urlopen(req,timeout=45) as r:return json.load(r)
+          pod=api()
+          if pod.get('status')!='RUNNING':
+              raise RuntimeError('Existing pod is not RUNNING. Not changing startup configuration.')
+          print('Pod status:',pod.get('status'))
+          print('Existing startup args:',repr(pod.get('args')))
+          os.makedirs('diagnostics',exist_ok=True)
+          with open('diagnostics/original-pod-startup.json','w') as f:
+              json.dump({'args':pod.get('args'),'image':pod.get('image'),'pod_id':pod.get('id')},f,indent=2)
+          command="bash -lc 'bash /workspace/install.sh > /workspace/install-output.log 2>&1 && cd /workspace/independent-ai && ./start-model.sh >> /workspace/install-output.log 2>&1'"
+          result=api('PATCH',{'args':command})
+          print('Updated pod startup command; restart required')
+          PY
+      - name: Save original configuration
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add diagnostics/original-pod-startup.json
+          git commit -m 'Save prior pod startup configuration' || true
+          git push
+      - name: Restart pod to run installation
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os,json,urllib.request,time
+          root='https://api.runpod.io/v2/pods/o7nqskrov34oew'
+          headers={'Authorization':'Bearer '+os.environ['RUNPOD_API_KEY'].strip(),'Content-Type':'application/json'}
+          req=urllib.request.Request(root+'/action',method='POST',headers=headers,data=b'{"action":"restart"}')
+          with urllib.request.urlopen(req,timeout=45) as r:print('Restart response:',r.status)
+          for i in range(36):
+              time.sleep(10)
+              req=urllib.request.Request(root,headers=headers)
+              with urllib.request.urlopen(req,timeout=45) as r:pod=json.load(r)
+              if pod.get('status')=='RUNNING':
+                  print('Pod RUNNING after restart')
+                  break
+          else:raise RuntimeError('Pod did not return to RUNNING')
+          PY
